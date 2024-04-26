@@ -369,6 +369,9 @@ class UrlGenerator implements UrlGeneratorContract
 
         $key = call_user_func($this->keyResolver);
 
+        // If previous app keys are added for key rotation, pick the first one which is the current app key
+        $key = is_array($key) ? $key[0] : $key;
+
         return $this->route($name, $parameters + [
             'signature' => hash_hmac('sha256', $this->route($name, $parameters, $absolute), $key),
         ], $absolute);
@@ -455,9 +458,21 @@ class UrlGenerator implements UrlGeneratorContract
 
         $original = rtrim($url.'?'.$queryString, '?');
 
-        $signature = hash_hmac('sha256', $original, call_user_func($this->keyResolver));
+        // For app key rotation, $keys may be an array of keys. Wrap a single key in an array 
+        // to simplify  logic and preserve backwards compatility with previous keyResolvers.
+        $keys = call_user_func($this->keyResolver);
+        $keys = is_array($keys) ? $keys : [$keys];
 
-        return hash_equals($signature, (string) $request->query('signature', ''));
+        foreach ($keys as $key) {
+            $signature = hash_hmac('sha256', $original, $key);
+            $validSignature = hash_equals($signature, (string) $request->query('signature', ''));
+
+            if ($validSignature) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
